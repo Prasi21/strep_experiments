@@ -8,3 +8,4 @@ torchvision==0.11.3
 
 
 # conda install unzip
+# conda install tensorflow-gpu

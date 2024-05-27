@@ -1,0 +1,12 @@
+name: strep_detect
+channels:
+  - defaults
+  - pytorch
+dependencies:
+  - python=3.8
+  - matplotlib=3.4.*
+  - numpy=1.21.*
+  - pandas=1.3.*
+  - pillow=8.3.*
+  - pytorch=2.2.*
+  - torchvision

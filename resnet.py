@@ -5,9 +5,6 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import LearningRateScheduler
 
-import time
-import sys
-
 # Define constants
 AUTOTUNE = tf.data.experimental.AUTOTUNE
 BUFFER_SIZE = 1000
@@ -15,7 +12,7 @@ BATCH_SIZE = 20
 LEARNING_RATE = 0.0001
 IMAGE_SIZE = (256, 256)
 NUM_CLASSES = 2  # Healthy and not healthy
-NUM_EPOCHS = 25
+NUM_EPOCHS = 250
 
 # Function to load and preprocess image
 def load_and_preprocess_image(filename, label):
@@ -36,78 +33,63 @@ val_dataset = val_dataset.map(lambda x: (x, 0))  # Label for healthy class is 0
 val_dataset = val_dataset.concatenate(tf.data.Dataset.list_files("./datasets/Augmented/Valfolder/Class1/*.jpg").map(lambda x: (x, 1)))  # Label for sick class is 1
 val_dataset = val_dataset.map(load_and_preprocess_image)
 
+# test_dataset = tf.data.Dataset.list_files("./datasets/Testfolder/Class0/*.jpeg")
+# test_dataset = test_dataset.map(lambda x: (x, 0))  # Label for healthy class is 0
+# test_dataset = test_dataset.concatenate(tf.data.Dataset.list_files("/content/Testfolder/Class1/*.jpeg").map(lambda x: (x, 1)))  # Label for sick class is 1
+# test_dataset = test_dataset.map(load_and_preprocess_image)
 
-# Define learning rate schedule
-def lr_schedule(epoch, lr):
-    if epoch < 150:
-        return lr
-    elif epoch < 225:
-        return lr * 0.1
-    else:
-        return lr * 0.01
-
-# Create learning rate scheduler callback
-lr_scheduler = LearningRateScheduler(lr_schedule)
 
 # Shuffle and batch the dataset
 train_dataset = train_dataset.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
 val_dataset = val_dataset.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
-
-# Create base model using pre-trained ResNet50 without top layer
-base_model = ResNet50(weights='imagenet', include_top=False, input_shape=(256, 256, 3))
-
-# Freeze base model layers
-base_model.trainable = False
-
-# Add new classification layers
-x = GlobalAveragePooling2D()(base_model.output)
-output = Dense(1, activation='sigmoid')(x)
-
-# Create final model
-model = Model(inputs=base_model.input, outputs=output)
-
-# Compile the model
-model.compile(optimizer=Adam(), loss='binary_crossentropy', metrics=['accuracy'])
-
-callbacks = [tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=15), lr_scheduler]
+# test_dataset = test_dataset.shuffle(BUFFER_SIZE).batch(BATCH_SIZE)
 
 
-start_time = time.time()
-# Train the model
-history = model.fit(train_dataset, validation_data=val_dataset, epochs=NUM_EPOCHS, callbacks=callbacks, verbose=1)
-end_time = time.time()
 
-total_time = end_time-start_time
-
-print(f"Total time taken to train for {NUM_EPOCHS} epochs: {total_time}")
-print(f"Time per epoch: {total_time/NUM_EPOCHS}")
-
-timestr = time.strftime("%Y%m%d-%H%M%S")
-
-# Save the model
-model.save("resnet50_model"+timestr+".h5")
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+from tensorflow.keras import regularizers
+import time
+timestp = time.strftime("%Y%m%d-%H%M%S")
+def finetune_pretrained(base_model, out_dir=f"model-{timestp}.keras"):
+    # Freeze base model layers
+    base_model.trainable = False
 
 
-# Plot training and validation loss
-plt.plot(history.history['loss'], label='Training Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.title('Resnet Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.legend()
-plt.show()
+    # Add new classification layers
+    x = GlobalAveragePooling2D()(base_model.output)
+    # x = Dense(8, activation='relu', kernel_regularizer=regularizers.l2(0.001),)(x)
+    output = Dense(1, activation='sigmoid')(x)
 
-# Plot training and validation accuracy
-plt.plot(history.history['accuracy'], label='Training Accuracy')
-plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
-plt.title('Resnet Accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
-plt.legend()
-plt.show()
+    # Create final model
+    model = Model(inputs=base_model.input, outputs=output)
+
+    # Optionally, unfreeze some layers of the convolutional base for fine-tuning
+    for layer in model.layers[:15]:
+        layer.trainable = True
 
 
-# Loss, Accuracy
-loss, acc = model.evaluate(val_dataset)
-print(f"Validation Loss: {loss}")
-print(f"Validation Accuracy: {acc}")
+    # Compile the model
+    model.compile(optimizer=Adam(learning_rate=0.0001), loss='binary_crossentropy', metrics=['accuracy'])
+
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=5, min_lr=1e-5)
+    early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
+    callbacks = [
+        reduce_lr,
+        early_stopping,]
+
+
+    # Train the model
+    history = model.fit(train_dataset, validation_data=val_dataset, epochs=NUM_EPOCHS, callbacks=callbacks, verbose=1)
+
+    # Save the model
+    model.save(out_dir)
+    return history, model
+
+
+
+from tensorflow.keras.applications import VGG16
+base_model = VGG16(weights='imagenet', include_top=False, input_shape=(256, 256, 3))
+history_vgg, vgg_model = finetune_pretrained(base_model, out_dir=f"vgg16-{timestp}.pt")
+
+
+

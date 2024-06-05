@@ -8,4 +8,5 @@ unzip ./datasets/full_pharyngitis_dataset.zip -d ./datasets/
 unzip datasets/no\ pharyngitis\ v2.zip -d datasets/raw_data/no_pharyngitis
 unzip datasets/pharyngitis\ v2.zip -d datasets/raw_data/pharyngitis
 
-
+python preprocess_data.py
+python augment_data.py
